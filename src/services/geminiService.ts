@@ -47,124 +47,140 @@ const safeJsonParse = (text: string) => {
   }
 };
 
-export const parseUserQuery = async (query: string): Promise<ParseResult> => {
-  const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
-    contents: `Analyze this user query for an e-commerce plumbing and home improvement store: "${query}"`,
-    config: {
-      systemInstruction: `You are an expert shopping assistant. Extract structured parameters from the user's query in Russian.
-      If the user is vague, provide a clarificationQuestion.
-      If the user specifies a specific website or domain to search on (e.g. "на сайте leroymerlin.ru"), extract it into 'sourceDomain'.
-      Return ONLY valid JSON.
-      
-      Available categories: "Кухня", "Ванная", "Плитка".
-      Available subcategories: "Мойки", "Смесители", "Раковины", "Настенная плитка".
-      
-      Parameters to extract:
-      - category (string)
-      - subcategory (string)
-      - brand (string)
-      - color (string)
-      - minPrice (number)
-      - maxPrice (number)
-      - width (number)
-      - hasThermostat (boolean)
-      - material (string)
-      - style (string)
-      - intent (string)
-      - urgency (string: "budget", "premium", "standard")
-      - sourceDomain (string: extracted website domain if provided)
-      
-      Also provide an 'explanation' field (in Russian) explaining what you understood.`,
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          parameters: {
-            type: Type.OBJECT,
-            properties: {
-              category: { type: Type.STRING },
-              subcategory: { type: Type.STRING },
-              brand: { type: Type.STRING },
-              color: { type: Type.STRING },
-              minPrice: { type: Type.NUMBER },
-              maxPrice: { type: Type.NUMBER },
-              width: { type: Type.NUMBER },
-              hasThermostat: { type: Type.BOOLEAN },
-              material: { type: Type.STRING },
-              style: { type: Type.STRING },
-              intent: { type: Type.STRING },
-              urgency: { type: Type.STRING },
-              sourceDomain: { type: Type.STRING }
-            }
-          },
-          confidence: { type: Type.NUMBER },
-          clarificationQuestion: { type: Type.STRING },
-          explanation: { type: Type.STRING }
-        },
-        required: ["parameters", "confidence", "explanation"]
-      }
+const withRetry = async <T>(fn: () => Promise<T>, retries = 2, delay = 1000): Promise<T> => {
+  try {
+    return await fn();
+  } catch (err) {
+    if (retries > 0) {
+      await new Promise(resolve => setTimeout(resolve, delay));
+      return withRetry(fn, retries - 1, delay * 2);
     }
-  });
+    throw err;
+  }
+};
 
-  return safeJsonParse(response.text);
+export const parseUserQuery = async (query: string): Promise<ParseResult> => {
+  return withRetry(async () => {
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: `Analyze this user query for an e-commerce plumbing and home improvement store: "${query}"`,
+      config: {
+        systemInstruction: `You are an expert shopping assistant. Extract structured parameters from the user's query in Russian.
+        If the user is vague, provide a clarificationQuestion.
+        If the user specifies a specific website or domain to search on (e.g. "на сайте leroymerlin.ru"), extract it into 'sourceDomain'.
+        Return ONLY valid JSON.
+        
+        Available categories: "Кухня", "Ванная", "Плитка".
+        Available subcategories: "Мойки", "Смесители", "Раковины", "Настенная плитка".
+        
+        Parameters to extract:
+        - category (string)
+        - subcategory (string)
+        - brand (string)
+        - color (string)
+        - minPrice (number)
+        - maxPrice (number)
+        - width (number)
+        - hasThermostat (boolean)
+        - material (string)
+        - style (string)
+        - intent (string)
+        - urgency (string: "budget", "premium", "standard")
+        - sourceDomain (string: extracted website domain if provided)
+        
+        Also provide an 'explanation' field (in Russian) explaining what you understood.`,
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            parameters: {
+              type: Type.OBJECT,
+              properties: {
+                category: { type: Type.STRING },
+                subcategory: { type: Type.STRING },
+                brand: { type: Type.STRING },
+                color: { type: Type.STRING },
+                minPrice: { type: Type.NUMBER },
+                maxPrice: { type: Type.NUMBER },
+                width: { type: Type.NUMBER },
+                hasThermostat: { type: Type.BOOLEAN },
+                material: { type: Type.STRING },
+                style: { type: Type.STRING },
+                intent: { type: Type.STRING },
+                urgency: { type: Type.STRING },
+                sourceDomain: { type: Type.STRING }
+              }
+            },
+            confidence: { type: Type.NUMBER },
+            clarificationQuestion: { type: Type.STRING },
+            explanation: { type: Type.STRING }
+          },
+          required: ["parameters", "confidence", "explanation"]
+        }
+      }
+    });
+
+    return safeJsonParse(response.text);
+  });
 };
 
 export const scoutWebProducts = async (domain: string, params: SearchParameters): Promise<any[]> => {
-  const query = `Find real products on ${domain} matching: ${params.category} ${params.subcategory} ${params.brand || ""} ${params.color || ""} ${params.material || ""}`;
-  
-  const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
-    contents: query,
-    config: {
-      systemInstruction: `You are a web shopping scout. Use Google Search to find real products ON THE SPECIFIED DOMAIN.
-      Return a list of exactly 4 products in JSON format.
-      Each product MUST match the local Product interface:
-      {
-        id: "web-unique-id",
-        name: "Full Product Name",
-        brand: "Extracted Brand",
-        price: number,
-        image: "https://picsum.photos/seed/{name}/400/400" (use this placeholder if image URL is not found),
-        description: "Brief useful description",
-        category: "Matching category",
-        subcategory: "Matching subcategory",
-        characteristics: { color, material, etc. },
-        rating: number (4.0-5.0),
-        reviewsCount: number,
-        popularity: number (70-100),
-        sourceUrl: "The real URL on the site"
-      }
-      
-      BE REALISTIC. If prices are not found, estimate based on domain average.`,
-      tools: [{ googleSearch: {} }],
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.ARRAY,
-        items: {
-          type: Type.OBJECT,
-          properties: {
-            id: { type: Type.STRING },
-            name: { type: Type.STRING },
-            brand: { type: Type.STRING },
-            price: { type: Type.NUMBER },
-            image: { type: Type.STRING },
-            description: { type: Type.STRING },
-            category: { type: Type.STRING },
-            subcategory: { type: Type.STRING },
-            characteristics: { type: Type.OBJECT, additionalProperties: { type: Type.STRING } },
-            rating: { type: Type.NUMBER },
-            reviewsCount: { type: Type.NUMBER },
-            popularity: { type: Type.NUMBER },
-            sourceUrl: { type: Type.STRING }
-          },
-          required: ["id", "name", "price", "image", "sourceUrl"]
+  return withRetry(async () => {
+    const query = `Find real products on ${domain} matching: ${params.category} ${params.subcategory} ${params.brand || ""} ${params.color || ""} ${params.material || ""}`;
+    
+    const response = await ai.models.generateContent({
+      model: "gemini-3.1-pro-preview", // Switched to Pro for more stable tool use
+      contents: query,
+      config: {
+        systemInstruction: `You are a web shopping scout. Use Google Search to find real products ON THE SPECIFIED DOMAIN.
+        Return a list of exactly 4 products in JSON format.
+        Each product MUST match the local Product interface:
+        {
+          id: "web-unique-id",
+          name: "Full Product Name",
+          brand: "Extracted Brand",
+          price: number,
+          image: "https://picsum.photos/seed/{name}/400/400" (use this placeholder if image URL is not found),
+          description: "Brief useful description",
+          category: "Matching category",
+          subcategory: "Matching subcategory",
+          characteristics: { color, material, etc. },
+          rating: number (4.0-5.0),
+          reviewsCount: number,
+          popularity: number (70-100),
+          sourceUrl: "The real URL on the site"
+        }
+        
+        BE REALISTIC. If prices are not found, estimate based on domain average.`,
+        tools: [{ googleSearch: {} }],
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              id: { type: Type.STRING },
+              name: { type: Type.STRING },
+              brand: { type: Type.STRING },
+              price: { type: Type.NUMBER },
+              image: { type: Type.STRING },
+              description: { type: Type.STRING },
+              category: { type: Type.STRING },
+              subcategory: { type: Type.STRING },
+              characteristics: { type: Type.OBJECT, additionalProperties: { type: Type.STRING } },
+              rating: { type: Type.NUMBER },
+              reviewsCount: { type: Type.NUMBER },
+              popularity: { type: Type.NUMBER },
+              sourceUrl: { type: Type.STRING }
+            },
+            required: ["id", "name", "price", "image", "sourceUrl"]
+          }
         }
       }
-    }
-  });
+    });
 
-  return safeJsonParse(response.text);
+    return safeJsonParse(response.text);
+  });
 };
 
 export const explainPerformance = async (product: any, parameters: SearchParameters): Promise<string> => {
