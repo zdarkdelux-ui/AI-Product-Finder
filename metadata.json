@@ -1,0 +1,6 @@
+{
+  "name": "AI Product Finder",
+  "description": "Smart AI-powered assistant for finding products using natural language queries. It understands intent, parses parameters, and explains relevance.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

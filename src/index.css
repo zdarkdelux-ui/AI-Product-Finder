@@ -1,0 +1,37 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  
+  --color-accent: #3B82F6;
+  --color-bg-card: #FFFFFF;
+  --color-text-main: #1A1C1E;
+  --color-text-muted: #64748B;
+  --color-border: #E2E8F0;
+  --color-success: #10B981;
+}
+
+@layer base {
+  body {
+    @apply bg-[#F4F7F9] text-[#1A1C1E] font-sans antialiased;
+  }
+}
+
+.geometric-card {
+  @apply bg-white border border-border rounded-xl shadow-[0_4px_12px_rgba(59,130,246,0.05)];
+}
+
+.sidebar-bg {
+  @apply bg-[#FBFBFC];
+}
+
+.parameter-chip {
+  @apply flex justify-between items-center bg-white border border-border px-3 py-2 rounded-lg text-[13px] mb-2;
+}
+
+.why-ai-box {
+  @apply bg-[#F8FAFC] rounded-lg p-3 text-[12px] leading-relaxed border-l-3 border-accent;
+}
+
+
